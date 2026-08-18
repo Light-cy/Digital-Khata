@@ -28,6 +28,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Download
@@ -125,6 +126,8 @@ fun SettingsScreen(
     val isLoanRemindersEnabled by viewModel.isLoanRemindersEnabled.collectAsStateWithLifecycle()
     val isRecurringAlertsEnabled by viewModel.isRecurringAlertsEnabled.collectAsStateWithLifecycle()
     val userName by viewModel.userName.collectAsStateWithLifecycle()
+    val cashStartingBalance by viewModel.cashStartingBalance.collectAsStateWithLifecycle()
+    val accountStartingBalance by viewModel.accountStartingBalance.collectAsStateWithLifecycle()
 
     var showNameDialog by remember { mutableStateOf(false) }
     var showPinDialog by remember { mutableStateOf(false) }
@@ -133,6 +136,7 @@ fun SettingsScreen(
     var showCurrencyDialog by remember { mutableStateOf(false) }
     var showThemeDialog by remember { mutableStateOf(false) }
     var showReminderTimeDialog by remember { mutableStateOf(false) }
+    var showOpeningBalancesDialog by remember { mutableStateOf(false) }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -907,6 +911,18 @@ fun SettingsScreen(
                         iconColor = MaterialTheme.colorScheme.primary,
                         onClick = { showCurrencyDialog = true }
                     )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f))
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    SettingActionRow(
+                        title = "Initial / Starting Balances",
+                        subtitle = "Cash: ${CurrencyUtils.format(cashStartingBalance)} • Bank: ${CurrencyUtils.format(accountStartingBalance)}",
+                        icon = Icons.Default.AccountBalance,
+                        iconColor = EarningGreen,
+                        onClick = { showOpeningBalancesDialog = true }
+                    )
                 }
             }
 
@@ -948,6 +964,19 @@ fun SettingsScreen(
                 )
             }
         }
+    }
+
+    if (showOpeningBalancesDialog) {
+        OpeningBalancesDialog(
+            currentCash = cashStartingBalance,
+            currentAccount = accountStartingBalance,
+            onDismiss = { showOpeningBalancesDialog = false },
+            onSaveBalances = { cash, account ->
+                viewModel.setStartingBalances(cash, account)
+                showOpeningBalancesDialog = false
+                Toast.makeText(context, "Starting balances updated successfully!", Toast.LENGTH_SHORT).show()
+            }
+        )
     }
 
     if (showNameDialog) {
@@ -1350,6 +1379,99 @@ private fun SetPinDialog(
                 }
             ) {
                 Text("Set PIN")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+}
+
+@Composable
+private fun OpeningBalancesDialog(
+    currentCash: Double,
+    currentAccount: Double,
+    onDismiss: () -> Unit,
+    onSaveBalances: (Double, Double) -> Unit
+) {
+    var cashText by remember { mutableStateOf(if (currentCash > 0) currentCash.toString().removeSuffix(".0") else "") }
+    var accountText by remember { mutableStateOf(if (currentAccount > 0) currentAccount.toString().removeSuffix(".0") else "") }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.AccountBalance,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Initial / Opening Balances", fontWeight = FontWeight.Bold)
+            }
+        },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(
+                    text = "Configure initial money in your Cash drawer and Bank account. These serve as starting offsets for your running balance.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                OutlinedTextField(
+                    value = cashText,
+                    onValueChange = {
+                        if (it.all { c -> c.isDigit() || c == '.' }) cashText = it
+                    },
+                    label = { Text("Cash in Hand (Starting)") },
+                    placeholder = { Text("0.00") },
+                    prefix = { Text("${CurrencyUtils.currencySymbol} ", fontWeight = FontWeight.Bold) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                OutlinedTextField(
+                    value = accountText,
+                    onValueChange = {
+                        if (it.all { c -> c.isDigit() || c == '.' }) accountText = it
+                    },
+                    label = { Text("Bank / Account Balance (Starting)") },
+                    placeholder = { Text("0.00") },
+                    prefix = { Text("${CurrencyUtils.currencySymbol} ", fontWeight = FontWeight.Bold) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                if (errorMessage != null) {
+                    Text(
+                        text = errorMessage!!,
+                        color = ExpenseRed,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    val cashVal = cashText.toDoubleOrNull() ?: 0.0
+                    val accVal = accountText.toDoubleOrNull() ?: 0.0
+                    if (cashVal < 0 || accVal < 0) {
+                        errorMessage = "Balances cannot be negative"
+                        return@Button
+                    }
+                    onSaveBalances(cashVal, accVal)
+                }
+            ) {
+                Text("Save")
             }
         },
         dismissButton = {

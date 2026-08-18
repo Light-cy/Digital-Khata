@@ -25,13 +25,18 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Handshake
+import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Receipt
 import androidx.compose.material.icons.filled.Savings
 import androidx.compose.material.icons.filled.Today
@@ -66,6 +71,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -74,13 +80,16 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.data.model.PaymentMode
 import com.example.data.model.Transaction
 import com.example.data.model.TransactionType
 import com.example.ui.components.AddEditTransactionSheet
 import com.example.ui.components.AnimatedCurrencyText
+import com.example.ui.components.BalanceOverviewCard
 import com.example.ui.components.CategoryIconHelper
 import com.example.ui.components.DailySummaryCard
 import com.example.ui.components.EmptyStateView
+import com.example.ui.components.StartingBalanceDialog
 import com.example.ui.components.SwipeToDeleteContainer
 import com.example.ui.components.TransactionSkeletonItem
 import com.example.ui.components.AppTopHeader
@@ -90,7 +99,11 @@ import com.example.ui.theme.ExpenseRed
 import com.example.ui.theme.LoanGivenAmber
 import com.example.ui.theme.LoanTakenBlue
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.AutoMode
+import com.example.data.model.isSettlementEntry
 import com.example.ui.components.ReceiptViewerDialog
+import com.example.ui.components.SystemSettlementDetailDialog
 import com.example.util.CurrencyUtils
 import com.example.util.DateUtils
 import com.example.util.NotificationHelper
@@ -106,12 +119,15 @@ fun HomeScreen(
     notificationHelper: NotificationHelper? = null,
     unreadNotificationsCount: Int = 0,
     onNavigateToSettings: (() -> Unit)? = null,
+    onNavigateToLoans: (() -> Unit)? = null,
     onNotificationClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val selectedDate by viewModel.selectedDateMillis.collectAsStateWithLifecycle()
     val transactions by viewModel.transactionsForDay.collectAsStateWithLifecycle()
     val dailySummary by viewModel.dailySummary.collectAsStateWithLifecycle()
+    val balanceOverview by viewModel.balanceOverview.collectAsStateWithLifecycle()
+    val lastUsedPaymentMode by viewModel.lastUsedPaymentMode.collectAsStateWithLifecycle()
     val budgetProgress by viewModel.budgetProgressList.collectAsStateWithLifecycle()
     val userName by (userManager?.userName?.collectAsStateWithLifecycle() ?: remember { mutableStateOf("") })
     val isReminderActive = notificationHelper?.isDailyReminderEnabled() ?: false
@@ -124,77 +140,87 @@ fun HomeScreen(
     var showAddSheet by remember { mutableStateOf(false) }
     var sheetInitialType by remember { mutableStateOf(TransactionType.EXPENSE) }
     var editingTransaction by remember { mutableStateOf<Transaction?>(null) }
+    var viewingSettlementTransaction by remember { mutableStateOf<Transaction?>(null) }
     var viewingReceiptTransaction by remember { mutableStateOf<Transaction?>(null) }
     var showDatePicker by remember { mutableStateOf(false) }
+    var showStartingBalanceDialog by remember { mutableStateOf(false) }
 
-    Scaffold(
-        modifier = modifier.fillMaxSize(),
-        contentWindowInsets = WindowInsets(0, 0, 0, 0),
-        snackbarHost = { SnackbarHost(snackbarHostState) },
-        containerColor = MaterialTheme.colorScheme.background
-    ) { padding ->
-        PullToRefreshBox(
-            isRefreshing = isRefreshing,
-            onRefresh = {
-                scope.launch {
-                    isRefreshing = true
-                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                    delay(400)
-                    isRefreshing = false
-                }
-            },
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
+    Box(
+        modifier = modifier
+            .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
+    ) {
+        Column(
+            modifier = Modifier.fillMaxSize()
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(MaterialTheme.colorScheme.background)
-            ) {
-                // Top Header: App Branding / Greeting + Settings & Notification Bell
-                AppTopHeader(
-                    userName = userName,
-                    isHomeScreen = true,
-                    isReminderActive = isReminderActive,
-                    unreadNotificationsCount = unreadNotificationsCount,
-                    onNavigateToSettings = onNavigateToSettings,
-                    onNotificationClick = onNotificationClick ?: onNavigateToSettings
-                )
+            // Top Header: App Branding / Greeting + Settings & Notification Bell
+            AppTopHeader(
+                userName = userName,
+                isHomeScreen = true,
+                isReminderActive = isReminderActive,
+                unreadNotificationsCount = unreadNotificationsCount,
+                onNavigateToSettings = onNavigateToSettings,
+                onNotificationClick = onNotificationClick ?: onNavigateToSettings
+            )
 
-                // Date Navigation Bar
-                DateNavigationBar(
-                    selectedDateMillis = selectedDate,
-                    onPreviousClick = {
+            // Date Navigation Bar
+            DateNavigationBar(
+                selectedDateMillis = selectedDate,
+                onPreviousClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    viewModel.previousDay()
+                },
+                onNextClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    viewModel.nextDay()
+                },
+                onDatePickClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    showDatePicker = true
+                },
+                onTodayClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                    viewModel.goToToday()
+                }
+            )
+
+            PullToRefreshBox(
+                isRefreshing = isRefreshing,
+                onRefresh = {
+                    scope.launch {
+                        isRefreshing = true
                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        viewModel.previousDay()
-                    },
-                    onNextClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        viewModel.nextDay()
-                    },
-                    onDatePickClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        showDatePicker = true
-                    },
-                    onTodayClick = {
-                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                        viewModel.goToToday()
+                        delay(400)
+                        isRefreshing = false
                     }
-                )
-
+                },
+                modifier = Modifier.fillMaxSize()
+            ) {
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 10.dp, bottom = 84.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
+                    // Balance Overview Card (Cash vs Account vs Net Total)
+                    item(key = "balance_overview_card") {
+                        BalanceOverviewCard(
+                            overview = balanceOverview,
+                            onAdjustStartingBalance = { showStartingBalanceDialog = true }
+                        )
+                    }
+
                     // Pinned Daily Summary Card
                     item(key = "daily_summary_card") {
                         DailySummaryCard(
+                            openingBalance = dailySummary.openingBalance,
                             totalEarning = dailySummary.totalEarning,
                             totalExpense = dailySummary.totalExpense,
-                            totalLoanGiven = dailySummary.totalLoanGiven,
-                            totalLoanTaken = dailySummary.totalLoanTaken
+                            dailyNetSavings = dailySummary.dailyNetSavings,
+                            runningBalance = dailySummary.runningBalance,
+                            cashRunning = dailySummary.cashRunning,
+                            accountRunning = dailySummary.accountRunning,
+                            unsettledLoanGiven = dailySummary.unsettledLoanGiven,
+                            unsettledLoanTaken = dailySummary.unsettledLoanTaken
                         )
                     }
 
@@ -354,9 +380,13 @@ fun HomeScreen(
                         }
                     } else {
                         items(transactions, key = { it.id }) { transaction ->
+                            val isSettlement = transaction.isSettlementEntry
                             Box(modifier = Modifier.animateItem()) {
                                 SwipeToDeleteContainer(
+                                    enableSwipe = !isSettlement,
+                                    itemKey = Pair(transaction.id, transaction.isSettled),
                                     onDelete = {
+                                        if (isSettlement) return@SwipeToDeleteContainer
                                         val deletedTx = transaction
                                         viewModel.deleteTransaction(deletedTx)
                                         scope.launch {
@@ -374,6 +404,7 @@ fun HomeScreen(
                                                     category = deletedTx.category,
                                                     note = deletedTx.note,
                                                     dateMillis = deletedTx.date,
+                                                    paymentMode = deletedTx.paymentMode,
                                                     makeRecurring = false,
                                                     recurringFrequency = com.example.data.model.RecurringFrequency.MONTHLY,
                                                     receiptImageUri = deletedTx.receiptImageUri
@@ -385,32 +416,58 @@ fun HomeScreen(
                                     TransactionItemRow(
                                         transaction = transaction,
                                         onClick = {
-                                            editingTransaction = transaction
-                                            sheetInitialType = transaction.type
-                                            showAddSheet = true
+                                            if (isSettlement) {
+                                                viewingSettlementTransaction = transaction
+                                            } else {
+                                                editingTransaction = transaction
+                                                sheetInitialType = transaction.type
+                                                showAddSheet = true
+                                            }
                                         },
                                         onDelete = {
-                                            val deletedTx = transaction
-                                            viewModel.deleteTransaction(deletedTx)
-                                            scope.launch {
-                                                val result = snackbarHostState.showSnackbar(
-                                                    message = "Deleted ${deletedTx.title}",
-                                                    actionLabel = "Undo",
-                                                    duration = SnackbarDuration.Short
-                                                )
-                                                if (result == SnackbarResult.ActionPerformed) {
-                                                    viewModel.addTransaction(
-                                                        type = deletedTx.type,
-                                                        amount = deletedTx.amount,
-                                                        title = deletedTx.title,
-                                                        personName = deletedTx.personName,
-                                                        category = deletedTx.category,
-                                                        note = deletedTx.note,
-                                                        dateMillis = deletedTx.date,
-                                                        makeRecurring = false,
-                                                        recurringFrequency = com.example.data.model.RecurringFrequency.MONTHLY,
-                                                        receiptImageUri = deletedTx.receiptImageUri
+                                            if (!isSettlement) {
+                                                val deletedTx = transaction
+                                                viewModel.deleteTransaction(deletedTx)
+                                                scope.launch {
+                                                    val result = snackbarHostState.showSnackbar(
+                                                        message = "Deleted ${deletedTx.title}",
+                                                        actionLabel = "Undo",
+                                                        duration = SnackbarDuration.Short
                                                     )
+                                                    if (result == SnackbarResult.ActionPerformed) {
+                                                        viewModel.addTransaction(
+                                                            type = deletedTx.type,
+                                                            amount = deletedTx.amount,
+                                                            title = deletedTx.title,
+                                                            personName = deletedTx.personName,
+                                                            category = deletedTx.category,
+                                                            note = deletedTx.note,
+                                                            dateMillis = deletedTx.date,
+                                                            paymentMode = deletedTx.paymentMode,
+                                                            makeRecurring = false,
+                                                            recurringFrequency = com.example.data.model.RecurringFrequency.MONTHLY,
+                                                            receiptImageUri = deletedTx.receiptImageUri
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        },
+                                        onToggleSettled = if (isSettlement) null else { tx ->
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            val wasSettled = tx.isSettled
+                                            val amountFormatted = CurrencyUtils.format(tx.amount)
+                                            viewModel.toggleLoanSettled(tx, tx.paymentMode) { isNowSettled ->
+                                                scope.launch {
+                                                    val message = if (isNowSettled) {
+                                                        if (tx.type == TransactionType.LOAN_GIVEN) {
+                                                            "Marked as recovered (${if (tx.paymentMode == PaymentMode.CASH) "Cash" else "Bank"}) — $amountFormatted added"
+                                                        } else {
+                                                            "Marked as paid back (${if (tx.paymentMode == PaymentMode.CASH) "Cash" else "Bank"}) — $amountFormatted added"
+                                                        }
+                                                    } else {
+                                                        "Loan reopened — settlement transaction removed"
+                                                    }
+                                                    snackbarHostState.showSnackbar(message, duration = SnackbarDuration.Short)
                                                 }
                                             }
                                         },
@@ -423,18 +480,26 @@ fun HomeScreen(
                 }
             }
         }
+
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 4.dp, start = 8.dp, end = 8.dp)
+        )
     }
 
     if (showAddSheet) {
         AddEditTransactionSheet(
             initialType = sheetInitialType,
             initialTransaction = editingTransaction,
+            initialPaymentMode = lastUsedPaymentMode,
             defaultDateMillis = selectedDate,
             onDismiss = {
                 showAddSheet = false
                 editingTransaction = null
             },
-            onSaveTransaction = { type, amount, title, personName, category, note, dateMillis, makeRecurring, freq, receiptUri ->
+            onSaveTransaction = { type, amount, title, personName, category, note, dateMillis, paymentMode, makeRecurring, freq, receiptUri ->
                 if (editingTransaction != null) {
                     viewModel.updateTransaction(
                         editingTransaction!!.copy(
@@ -443,6 +508,7 @@ fun HomeScreen(
                             title = title,
                             personName = personName,
                             category = category,
+                            paymentMode = paymentMode,
                             note = note,
                             date = dateMillis,
                             receiptImageUri = receiptUri
@@ -457,6 +523,7 @@ fun HomeScreen(
                         category = category,
                         note = note,
                         dateMillis = dateMillis,
+                        paymentMode = paymentMode,
                         makeRecurring = makeRecurring,
                         recurringFrequency = freq,
                         receiptImageUri = receiptUri
@@ -465,6 +532,33 @@ fun HomeScreen(
             },
             onDeleteTransaction = { tx ->
                 viewModel.deleteTransaction(tx)
+                scope.launch {
+                    val result = snackbarHostState.showSnackbar(
+                        message = "Entry deleted",
+                        actionLabel = "Undo",
+                        duration = SnackbarDuration.Short
+                    )
+                    if (result == SnackbarResult.ActionPerformed) {
+                        viewModel.restoreTransaction(tx)
+                    }
+                }
+            },
+            onUnsettleTransaction = { tx ->
+                viewModel.toggleLoanSettled(tx, tx.paymentMode)
+            }
+        )
+    }
+
+    if (showStartingBalanceDialog) {
+        StartingBalanceDialog(
+            initialCash = balanceOverview.cashStarting,
+            initialAccount = balanceOverview.accountStarting,
+            onDismiss = { showStartingBalanceDialog = false },
+            onSave = { cash, account ->
+                viewModel.setStartingBalances(cash, account)
+                scope.launch {
+                    snackbarHostState.showSnackbar("Starting balances updated successfully!", duration = SnackbarDuration.Short)
+                }
             }
         )
     }
@@ -474,6 +568,14 @@ fun HomeScreen(
             imageUri = viewingReceiptTransaction!!.receiptImageUri!!,
             title = viewingReceiptTransaction!!.title,
             onDismiss = { viewingReceiptTransaction = null }
+        )
+    }
+
+    if (viewingSettlementTransaction != null) {
+        SystemSettlementDetailDialog(
+            transaction = viewingSettlementTransaction!!,
+            onDismiss = { viewingSettlementTransaction = null },
+            onNavigateToLoans = onNavigateToLoans
         )
     }
 
@@ -649,14 +751,22 @@ fun TransactionItemRow(
     onClick: () -> Unit,
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
+    onToggleSettled: ((Transaction) -> Unit)? = null,
     onViewReceipt: (() -> Unit)? = null
 ) {
+    val isLoan = transaction.type == TransactionType.LOAN_GIVEN || transaction.type == TransactionType.LOAN_TAKEN
     val color = CategoryIconHelper.getTypeColor(transaction.type)
-    val icon = if (transaction.type == TransactionType.LOAN_GIVEN || transaction.type == TransactionType.LOAN_TAKEN) {
+    val icon = if (isLoan) {
         Icons.Default.Handshake
     } else {
         CategoryIconHelper.getCategoryIcon(transaction.category)
     }
+
+    val isSettled = transaction.isSettled
+    val isCash = transaction.paymentMode == PaymentMode.CASH
+    val modeColor = if (isCash) Color(0xFF10B981) else Color(0xFF6366F1)
+    val surfaceColor = MaterialTheme.colorScheme.surface
+    val settledContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f).compositeOver(surfaceColor)
 
     Card(
         modifier = modifier
@@ -665,32 +775,50 @@ fun TransactionItemRow(
             .bounceClick(scaleDown = 0.98f) { onClick() },
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
+            containerColor = if (isSettled) settledContainerColor else surfaceColor
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.5.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = if (isSettled) 0.dp else 1.dp)
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp),
+                .padding(horizontal = 12.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // Color-coded Category/Type Icon
-            Box(
-                modifier = Modifier
-                    .size(44.dp)
-                    .background(color.copy(alpha = 0.12f), RoundedCornerShape(12.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    imageVector = icon,
-                    contentDescription = null,
-                    tint = color,
-                    modifier = Modifier.size(22.dp)
-                )
+            // If it's a loan, show the quick-settle checkbox button on the left
+            if (isLoan && onToggleSettled != null) {
+                IconButton(
+                    onClick = { onToggleSettled(transaction) },
+                    modifier = Modifier.size(40.dp)
+                ) {
+                    Icon(
+                        imageVector = if (isSettled) Icons.Default.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
+                        contentDescription = if (isSettled) "Settled (Tap to reopen)" else "Tap to mark settled",
+                        tint = if (isSettled) EarningGreen else MaterialTheme.colorScheme.outline,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(4.dp))
+            } else {
+                // Color-coded Category/Type Icon
+                Box(
+                    modifier = Modifier
+                        .size(42.dp)
+                        .background(
+                            if (isSettled) color.copy(alpha = 0.07f) else color.copy(alpha = 0.12f),
+                            RoundedCornerShape(12.dp)
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = if (isSettled) color.copy(alpha = 0.6f) else color,
+                        modifier = Modifier.size(22.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(12.dp))
             }
-
-            Spacer(modifier = Modifier.width(12.dp))
 
             // Title & Details
             Column(modifier = Modifier.weight(1f)) {
@@ -698,7 +826,8 @@ fun TransactionItemRow(
                     Text(
                         text = transaction.title,
                         style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold,
+                        fontWeight = if (isSettled) FontWeight.Normal else FontWeight.SemiBold,
+                        color = if (isSettled) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f) else MaterialTheme.colorScheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false)
@@ -733,25 +862,79 @@ fun TransactionItemRow(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(2.dp))
+                Spacer(modifier = Modifier.height(3.dp))
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     // Type Badge
                     Surface(
                         shape = RoundedCornerShape(6.dp),
-                        color = color.copy(alpha = 0.1f)
+                        color = if (isSettled) color.copy(alpha = 0.08f) else color.copy(alpha = 0.12f)
                     ) {
                         Text(
                             text = CategoryIconHelper.getTypeLabel(transaction.type),
                             style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                            color = color,
+                            color = if (isSettled) color.copy(alpha = 0.75f) else color,
                             fontWeight = FontWeight.Bold,
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                         )
                     }
 
+                    Spacer(modifier = Modifier.width(4.dp))
+
+                    // Payment Mode Badge (Cash vs Bank)
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = modeColor.copy(alpha = 0.12f)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = if (isCash) Icons.Default.Payments else Icons.Default.AccountBalance,
+                                contentDescription = null,
+                                tint = modeColor,
+                                modifier = Modifier.size(10.dp)
+                            )
+                            Spacer(modifier = Modifier.width(3.dp))
+                            Text(
+                                text = if (isCash) "Cash" else "Bank",
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp),
+                                color = modeColor,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    }
+
+                    if (transaction.isSettlementEntry) {
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Surface(
+                            shape = RoundedCornerShape(6.dp),
+                            color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.7f)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Lock,
+                                    contentDescription = "Auto Settlement",
+                                    tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                                    modifier = Modifier.size(9.dp)
+                                )
+                                Spacer(modifier = Modifier.width(2.dp))
+                                Text(
+                                    text = "Auto",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                    color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                    }
+
                     if (transaction.personName != null) {
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
                         Text(
                             text = "• ${transaction.personName}",
                             style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
@@ -760,7 +943,7 @@ fun TransactionItemRow(
                             overflow = TextOverflow.Ellipsis
                         )
                     } else if (transaction.category != null) {
-                        Spacer(modifier = Modifier.width(6.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
                         Text(
                             text = "• ${transaction.category}",
                             style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
@@ -768,8 +951,8 @@ fun TransactionItemRow(
                         )
                     }
 
-                    if (transaction.isSettled) {
-                        Spacer(modifier = Modifier.width(6.dp))
+                    if (isSettled) {
+                        Spacer(modifier = Modifier.width(4.dp))
                         Text(
                             text = "[Settled]",
                             style = MaterialTheme.typography.bodySmall.copy(fontSize = 10.sp),
@@ -805,9 +988,8 @@ fun TransactionItemRow(
                 text = "$amountPrefix${CurrencyUtils.format(transaction.amount)}",
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Bold,
-                color = color
+                color = if (isSettled) color.copy(alpha = 0.6f) else color
             )
         }
     }
 }
-

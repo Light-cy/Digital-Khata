@@ -17,7 +17,7 @@ import com.example.data.model.Transaction
         Budget::class,
         AppNotification::class
     ],
-    version = 3,
+    version = 6,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

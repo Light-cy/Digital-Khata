@@ -2,6 +2,7 @@ package com.example.ui.screens.loans
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.data.model.PaymentMode
 import com.example.data.model.Transaction
 import com.example.data.model.TransactionType
 import com.example.data.repository.KhataRepository
@@ -46,9 +47,18 @@ class LoansViewModel(private val repository: KhataRepository) : ViewModel() {
         _selectedTab.value = index
     }
 
-    fun toggleSettledStatus(transaction: Transaction) {
+    fun toggleSettledStatus(
+        transaction: Transaction,
+        settlementPaymentMode: PaymentMode = transaction.paymentMode,
+        onResult: ((Boolean) -> Unit)? = null
+    ) {
         viewModelScope.launch {
-            repository.setLoanSettled(transaction.id, !transaction.isSettled)
+            val isNowSettled = repository.toggleLoanSettled(
+                loan = transaction,
+                settlementDateMillis = System.currentTimeMillis(),
+                settlementPaymentMode = settlementPaymentMode
+            )
+            onResult?.invoke(isNowSettled)
         }
     }
 
@@ -59,6 +69,7 @@ class LoansViewModel(private val repository: KhataRepository) : ViewModel() {
         personName: String,
         note: String?,
         dateMillis: Long,
+        paymentMode: PaymentMode = PaymentMode.CASH,
         receiptImageUri: String? = null
     ) {
         viewModelScope.launch {
@@ -68,6 +79,7 @@ class LoansViewModel(private val repository: KhataRepository) : ViewModel() {
                 amount = amount,
                 title = title,
                 personName = personName,
+                paymentMode = paymentMode,
                 note = note,
                 isSettled = false,
                 receiptImageUri = receiptImageUri
@@ -85,6 +97,12 @@ class LoansViewModel(private val repository: KhataRepository) : ViewModel() {
     fun deleteLoan(transaction: Transaction) {
         viewModelScope.launch {
             repository.deleteTransaction(transaction)
+        }
+    }
+
+    fun restoreLoan(transaction: Transaction) {
+        viewModelScope.launch {
+            repository.insertTransaction(transaction)
         }
     }
 }

@@ -43,6 +43,10 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
@@ -52,11 +56,13 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.font.FontWeight
@@ -64,6 +70,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.data.model.PaymentMode
 import com.example.data.model.Transaction
 import com.example.data.model.TransactionType
 import com.example.ui.components.AddEditTransactionSheet
@@ -82,6 +89,7 @@ import com.example.ui.theme.LoanTakenBlueLight
 import com.example.util.CurrencyUtils
 import com.example.util.DateUtils
 import com.example.util.NotificationHelper
+import kotlinx.coroutines.launch
 
 @Composable
 fun LoansScreen(
@@ -97,6 +105,8 @@ fun LoansScreen(
     val totals by viewModel.loanTotals.collectAsStateWithLifecycle()
     val isReminderActive = notificationHelper?.isDailyReminderEnabled() ?: false
 
+    val scope = rememberCoroutineScope()
+    val snackbarHostState = remember { SnackbarHostState() }
     val haptic = LocalHapticFeedback.current
     var showAddSheet by remember { mutableStateOf(false) }
     var editingTransaction by remember { mutableStateOf<Transaction?>(null) }
@@ -111,6 +121,7 @@ fun LoansScreen(
     Scaffold(
         modifier = modifier.fillMaxSize(),
         contentWindowInsets = WindowInsets(0, 0, 0, 0),
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         floatingActionButton = {
             FloatingActionButton(
                 onClick = {
@@ -315,7 +326,18 @@ fun LoansScreen(
                                 isGiven = selectedTab == 0,
                                 onToggleSettled = {
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    viewModel.toggleSettledStatus(loan)
+                                    viewModel.toggleSettledStatus(loan) { isNowSettled ->
+                                        scope.launch {
+                                            snackbarHostState.showSnackbar(
+                                                message = if (isNowSettled) {
+                                                    if (selectedTab == 0) "Marked as recovered & added to income" else "Marked as paid back & recorded in expenses"
+                                                } else {
+                                                    "Loan reopened (settlement record removed)"
+                                                },
+                                                duration = SnackbarDuration.Short
+                                            )
+                                        }
+                                    }
                                 },
                                 onClick = {
                                     editingTransaction = loan
@@ -375,14 +397,21 @@ fun LoansScreen(
                                     isGiven = selectedTab == 0,
                                     onToggleSettled = {
                                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        viewModel.toggleSettledStatus(loan)
+                                        viewModel.toggleSettledStatus(loan) { isNowSettled ->
+                                            scope.launch {
+                                                snackbarHostState.showSnackbar(
+                                                    message = if (isNowSettled) "Marked as settled" else "Loan reopened (settlement record removed)",
+                                                    duration = SnackbarDuration.Short
+                                                )
+                                            }
+                                        }
                                     },
-                                    onClick = {
-                                        editingTransaction = loan
-                                        showAddSheet = true
-                                    },
-                                    onViewReceipt = { viewingReceiptTransaction = loan }
-                                )
+                                     onClick = {
+                                         editingTransaction = loan
+                                         showAddSheet = true
+                                     },
+                                     onViewReceipt = { viewingReceiptTransaction = loan }
+                                 )
                             }
                         }
                     }
@@ -399,7 +428,7 @@ fun LoansScreen(
                 showAddSheet = false
                 editingTransaction = null
             },
-            onSaveTransaction = { type, amount, title, personName, category, note, dateMillis, _, _, receiptUri ->
+            onSaveTransaction = { type, amount, title, personName, category, note, dateMillis, paymentMode, _, _, receiptUri ->
                 if (editingTransaction != null) {
                     viewModel.updateLoan(
                         editingTransaction!!.copy(
@@ -407,6 +436,7 @@ fun LoansScreen(
                             amount = amount,
                             title = title,
                             personName = personName ?: "Unknown",
+                            paymentMode = paymentMode,
                             note = note,
                             date = dateMillis,
                             receiptImageUri = receiptUri
@@ -420,12 +450,26 @@ fun LoansScreen(
                         personName = personName ?: "Unknown",
                         note = note,
                         dateMillis = dateMillis,
+                        paymentMode = paymentMode,
                         receiptImageUri = receiptUri
                     )
                 }
             },
             onDeleteTransaction = { tx ->
                 viewModel.deleteLoan(tx)
+                scope.launch {
+                    val result = snackbarHostState.showSnackbar(
+                        message = "Loan entry deleted",
+                        actionLabel = "Undo",
+                        duration = SnackbarDuration.Short
+                    )
+                    if (result == SnackbarResult.ActionPerformed) {
+                        viewModel.restoreLoan(tx)
+                    }
+                }
+            },
+            onUnsettleTransaction = { tx ->
+                viewModel.toggleSettledStatus(tx)
             }
         )
     }
@@ -449,6 +493,8 @@ private fun LoanItemCard(
 ) {
     val themeColor = if (isGiven) LoanGivenAmber else LoanTakenBlue
     val daysAgo = ((System.currentTimeMillis() - loan.date) / (1000 * 60 * 60 * 24)).coerceAtLeast(0)
+    val surfaceColor = MaterialTheme.colorScheme.surface
+    val settledContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f).compositeOver(surfaceColor)
 
     Card(
         modifier = Modifier
@@ -457,9 +503,9 @@ private fun LoanItemCard(
             .bounceClick(scaleDown = 0.98f) { onClick() },
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (loan.isSettled) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f) else MaterialTheme.colorScheme.surface
+            containerColor = if (loan.isSettled) settledContainerColor else surfaceColor
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (loan.isSettled) 0.5.dp else 2.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = if (loan.isSettled) 0.dp else 2.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             Row(
@@ -530,11 +576,32 @@ private fun LoanItemCard(
                             }
                         }
 
-                        Text(
-                            text = "${DateUtils.formatShortDate(loan.date)} • $daysAgo days ago",
-                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Text(
+                                text = "${DateUtils.formatShortDate(loan.date)} • $daysAgo days ago",
+                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = if (loan.paymentMode == PaymentMode.CASH) {
+                                    EarningGreen.copy(alpha = 0.12f)
+                                } else {
+                                    LoanTakenBlue.copy(alpha = 0.12f)
+                                }
+                            ) {
+                                Text(
+                                    text = if (loan.paymentMode == PaymentMode.CASH) "Cash" else "Bank",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (loan.paymentMode == PaymentMode.CASH) EarningGreen else LoanTakenBlue,
+                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                )
+                            }
+                        }
                     }
                 }
 

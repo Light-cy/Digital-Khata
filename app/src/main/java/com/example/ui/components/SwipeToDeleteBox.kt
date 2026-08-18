@@ -1,6 +1,7 @@
 package com.example.ui.components
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
@@ -8,6 +9,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Delete
@@ -25,7 +27,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
@@ -37,6 +41,8 @@ import kotlinx.coroutines.delay
 fun SwipeToDeleteContainer(
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
+    itemKey: Any? = null,
+    enableSwipe: Boolean = true,
     content: @Composable () -> Unit
 ) {
     val haptic = LocalHapticFeedback.current
@@ -44,7 +50,7 @@ fun SwipeToDeleteContainer(
 
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { value ->
-            if (value == SwipeToDismissBoxValue.EndToStart) {
+            if (enableSwipe && value == SwipeToDismissBoxValue.EndToStart) {
                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                 isDismissed = true
                 true
@@ -53,6 +59,14 @@ fun SwipeToDeleteContainer(
             }
         }
     )
+
+    // Reset dismiss state whenever the item key / state changes (e.g. toggling settled)
+    LaunchedEffect(itemKey) {
+        if (dismissState.currentValue != SwipeToDismissBoxValue.Settled) {
+            dismissState.snapTo(SwipeToDismissBoxValue.Settled)
+        }
+        isDismissed = false
+    }
 
     LaunchedEffect(isDismissed) {
         if (isDismissed) {
@@ -72,28 +86,51 @@ fun SwipeToDeleteContainer(
             state = dismissState,
             modifier = modifier,
             enableDismissFromStartToEnd = false,
-            enableDismissFromEndToStart = true,
+            enableDismissFromEndToStart = enableSwipe,
             backgroundContent = {
-                val color = if (dismissState.targetValue == SwipeToDismissBoxValue.EndToStart) {
-                    ExpenseRed
-                } else {
-                    ExpenseRed.copy(alpha = 0.8f)
+                if (!enableSwipe) return@SwipeToDismissBox
+
+                val isSwipingToDelete = dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart ||
+                        dismissState.targetValue == SwipeToDismissBoxValue.EndToStart
+
+                val progress = try {
+                    if (dismissState.dismissDirection == SwipeToDismissBoxValue.EndToStart) {
+                        dismissState.progress
+                    } else if (dismissState.targetValue == SwipeToDismissBoxValue.EndToStart) {
+                        1f
+                    } else {
+                        0f
+                    }
+                } catch (e: Exception) {
+                    0f
                 }
 
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 16.dp, vertical = 5.dp)
-                        .clip(RoundedCornerShape(16.dp))
-                        .background(color)
-                        .padding(horizontal = 20.dp),
-                    contentAlignment = Alignment.CenterEnd
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Delete,
-                        contentDescription = "Delete",
-                        tint = Color.White
-                    )
+                val iconScale by animateFloatAsState(
+                    targetValue = if (isSwipingToDelete && progress > 0.1f) 1f else 0.5f,
+                    label = "iconScale"
+                )
+
+                if (isSwipingToDelete && progress > 0.02f) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .graphicsLayer {
+                                alpha = (progress * 1.5f).coerceIn(0f, 1f)
+                            }
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(ExpenseRed)
+                            .padding(horizontal = 20.dp),
+                        contentAlignment = Alignment.CenterEnd
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Delete,
+                            contentDescription = "Delete",
+                            tint = Color.White,
+                            modifier = Modifier
+                                .size(24.dp)
+                                .scale(iconScale)
+                        )
+                    }
                 }
             },
             content = {

@@ -46,6 +46,7 @@ import com.example.ui.screens.weekly.WeeklyViewModel
 import com.example.util.NotificationHelper
 import com.example.util.RecurringSyncWorker
 import com.example.util.SecurityManager
+import com.example.util.StartingBalanceManager
 import com.example.util.ThemeManager
 import com.example.util.UserManager
 
@@ -57,6 +58,7 @@ fun MainScreen(
     themeManager: ThemeManager? = null,
     notificationHelper: NotificationHelper? = null,
     userManager: UserManager? = null,
+    startingBalanceManager: StartingBalanceManager? = null,
     initialRoute: String? = null,
     modifier: Modifier = Modifier
 ) {
@@ -175,13 +177,14 @@ fun MainScreen(
         ) {
             // Home Screen (Daily View)
             composable(Screen.Home.route) {
-                val homeViewModel = remember { HomeViewModel(repository) }
+                val homeViewModel = remember { HomeViewModel(repository, startingBalanceManager) }
                 HomeScreen(
                     viewModel = homeViewModel,
                     userManager = userManager,
                     notificationHelper = notificationHelper,
                     unreadNotificationsCount = unreadCount,
                     onNavigateToSettings = { navController.navigate(Screen.Settings.route) },
+                    onNavigateToLoans = { navController.navigate(Screen.Loans.route) },
                     onNotificationClick = { navController.navigate(Screen.Notifications.route) }
                 )
             }
@@ -245,6 +248,7 @@ fun MainScreen(
                     notificationHelper = notificationHelper,
                     unreadNotificationsCount = unreadCount,
                     onNavigateToSettings = { navController.navigate(Screen.Settings.route) },
+                    onNavigateToLoans = { navController.navigate(Screen.Loans.route) },
                     onNotificationClick = { navController.navigate(Screen.Notifications.route) },
                     onBack = { navController.popBackStack() }
                 )
@@ -297,7 +301,8 @@ fun MainScreen(
                         securityManager = securityManager,
                         themeManager = themeManager,
                         notificationHelper = notificationHelper,
-                        userManager = userManager
+                        userManager = userManager,
+                        startingBalanceManager = startingBalanceManager
                     )
                 }
                 SettingsScreen(

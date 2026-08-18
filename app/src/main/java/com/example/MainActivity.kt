@@ -24,6 +24,7 @@ import com.example.ui.theme.DigitalKhataTheme
 import com.example.util.AppThemeMode
 import com.example.util.NotificationHelper
 import com.example.util.SecurityManager
+import com.example.util.StartingBalanceManager
 import com.example.util.ThemeManager
 import com.example.util.UserManager
 import kotlinx.coroutines.Dispatchers
@@ -38,6 +39,7 @@ class MainActivity : FragmentActivity() {
     private lateinit var themeManager: ThemeManager
     private lateinit var notificationHelper: NotificationHelper
     private lateinit var userManager: UserManager
+    private lateinit var startingBalanceManager: StartingBalanceManager
 
     private var targetRoute by mutableStateOf<String?>(null)
 
@@ -60,6 +62,7 @@ class MainActivity : FragmentActivity() {
         themeManager = ThemeManager(applicationContext)
         notificationHelper = NotificationHelper(applicationContext)
         userManager = UserManager(applicationContext)
+        startingBalanceManager = StartingBalanceManager(applicationContext)
 
         // Initialize channels and verify alarms
         NotificationHelper.createNotificationChannels(applicationContext)
@@ -110,6 +113,7 @@ class MainActivity : FragmentActivity() {
                             themeManager = themeManager,
                             notificationHelper = notificationHelper,
                             userManager = userManager,
+                            startingBalanceManager = startingBalanceManager,
                             initialRoute = targetRoute
                         )
                     }

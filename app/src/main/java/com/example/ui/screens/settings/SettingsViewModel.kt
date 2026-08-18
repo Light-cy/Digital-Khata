@@ -10,6 +10,7 @@ import com.example.util.ExportImportManager
 import com.example.util.ExportImportManager.ImportResult
 import com.example.util.NotificationHelper
 import com.example.util.SecurityManager
+import com.example.util.StartingBalanceManager
 import com.example.util.ThemeManager
 import com.example.util.UserManager
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -22,8 +23,15 @@ class SettingsViewModel(
     private val securityManager: SecurityManager,
     private val themeManager: ThemeManager? = null,
     private val notificationHelper: NotificationHelper? = null,
-    private val userManager: UserManager? = null
+    private val userManager: UserManager? = null,
+    private val startingBalanceManager: StartingBalanceManager? = null
 ) : ViewModel() {
+
+    val cashStartingBalance: StateFlow<Double> = startingBalanceManager?.cashStartingBalance
+        ?: MutableStateFlow(0.0).asStateFlow()
+
+    val accountStartingBalance: StateFlow<Double> = startingBalanceManager?.accountStartingBalance
+        ?: MutableStateFlow(0.0).asStateFlow()
 
     private val _userName = MutableStateFlow(userManager?.getUserName() ?: "")
     val userName: StateFlow<String> = _userName.asStateFlow()
@@ -158,9 +166,14 @@ class SettingsViewModel(
         }
     }
 
+    fun setStartingBalances(cash: Double, account: Double) {
+        startingBalanceManager?.setStartingBalances(cash, account)
+    }
+
     fun clearAllData(onComplete: () -> Unit) {
         viewModelScope.launch {
             repository.clearAllData()
+            startingBalanceManager?.clearStartingBalances()
             onComplete()
         }
     }

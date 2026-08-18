@@ -29,6 +29,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountBalance
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AddPhotoAlternate
 import androidx.compose.material.icons.filled.CalendarMonth
@@ -37,6 +38,9 @@ import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.LockOpen
+import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Repeat
 import androidx.compose.material3.Button
@@ -80,6 +84,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import com.example.data.model.PaymentMode
 import com.example.data.model.RecurringFrequency
 import com.example.data.model.Transaction
 import com.example.data.model.TransactionType
@@ -96,6 +101,7 @@ import java.util.Calendar
 fun AddEditTransactionSheet(
     initialType: TransactionType = TransactionType.EXPENSE,
     initialTransaction: Transaction? = null,
+    initialPaymentMode: PaymentMode = PaymentMode.CASH,
     defaultDateMillis: Long = System.currentTimeMillis(),
     onDismiss: () -> Unit,
     onSaveTransaction: (
@@ -106,14 +112,18 @@ fun AddEditTransactionSheet(
         category: String?,
         note: String?,
         dateMillis: Long,
+        paymentMode: PaymentMode,
         makeRecurring: Boolean,
         recurringFrequency: RecurringFrequency,
         receiptImageUri: String?
     ) -> Unit,
-    onDeleteTransaction: ((Transaction) -> Unit)? = null
+    onDeleteTransaction: ((Transaction) -> Unit)? = null,
+    onUnsettleTransaction: ((Transaction) -> Unit)? = null
 ) {
     val context = LocalContext.current
+    var isLockedSettled by remember { mutableStateOf(initialTransaction?.isSettled == true) }
     var selectedType by remember { mutableStateOf(initialTransaction?.type ?: initialType) }
+    var selectedPaymentMode by remember { mutableStateOf(initialTransaction?.paymentMode ?: initialPaymentMode) }
     var amountText by remember { mutableStateOf(initialTransaction?.amount?.let { if (it % 1 == 0.0) it.toLong().toString() else it.toString() } ?: "") }
     var titleText by remember { mutableStateOf(initialTransaction?.title ?: "") }
     var personNameText by remember { mutableStateOf(initialTransaction?.personName ?: "") }
@@ -137,7 +147,6 @@ fun AddEditTransactionSheet(
     }
 
     val typeColor = CategoryIconHelper.getTypeColor(selectedType)
-
     val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
 
     ModalBottomSheet(
@@ -170,7 +179,7 @@ fun AddEditTransactionSheet(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = if (initialTransaction == null) "New Entry" else "Edit Entry",
+                    text = if (initialTransaction == null) "New Entry" else if (isLockedSettled) "Settled Loan (Locked)" else "Edit Entry",
                     style = MaterialTheme.typography.titleLarge,
                     fontWeight = FontWeight.Bold
                 )
@@ -200,6 +209,43 @@ fun AddEditTransactionSheet(
                 }
             }
 
+            if (isLockedSettled) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.4f)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Lock,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.tertiary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "Settled Loan is Locked",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onTertiaryContainer
+                            )
+                            Text(
+                                text = "This loan was settled and linked to an income/expense record. Its details cannot be edited while settled.",
+                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
+                                color = MaterialTheme.colorScheme.onTertiaryContainer.copy(alpha = 0.85f)
+                            )
+                        }
+                    }
+                }
+            }
+
             Spacer(modifier = Modifier.height(12.dp))
 
             // Transaction Type Selector Tabs
@@ -225,7 +271,7 @@ fun AddEditTransactionSheet(
                             .weight(1f)
                             .clip(RoundedCornerShape(12.dp))
                             .background(if (isSelected) color else Color.Transparent)
-                            .clickable {
+                            .clickable(enabled = !isLockedSettled) {
                                 selectedType = type
                                 if (type == TransactionType.EXPENSE && (selectedCategory == null || selectedCategory == "Salary")) {
                                     selectedCategory = "Food"
@@ -247,7 +293,79 @@ fun AddEditTransactionSheet(
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Payment Mode (Cash vs Account / Bank) Selector Strip
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                    .padding(4.dp),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                // Cash Toggle Option
+                val isCashSelected = selectedPaymentMode == PaymentMode.CASH
+                Surface(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable(enabled = !isLockedSettled) { selectedPaymentMode = PaymentMode.CASH },
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (isCashSelected) CashEmerald else Color.Transparent
+                ) {
+                    Row(
+                        modifier = Modifier.padding(vertical = 8.dp, horizontal = 8.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Payments,
+                            contentDescription = null,
+                            tint = if (isCashSelected) Color.White else CashEmerald,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Cash in Hand",
+                            fontSize = 12.sp,
+                            fontWeight = if (isCashSelected) FontWeight.Bold else FontWeight.Medium,
+                            color = if (isCashSelected) Color.White else MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+
+                // Account / Bank Toggle Option
+                val isAccountSelected = selectedPaymentMode == PaymentMode.ACCOUNT
+                Surface(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable(enabled = !isLockedSettled) { selectedPaymentMode = PaymentMode.ACCOUNT },
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (isAccountSelected) AccountIndigo else Color.Transparent
+                ) {
+                    Row(
+                        modifier = Modifier.padding(vertical = 8.dp, horizontal = 8.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.AccountBalance,
+                            contentDescription = null,
+                            tint = if (isAccountSelected) Color.White else AccountIndigo,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Bank / Account",
+                            fontSize = 12.sp,
+                            fontWeight = if (isAccountSelected) FontWeight.Bold else FontWeight.Medium,
+                            color = if (isAccountSelected) Color.White else MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
 
             // Amount Input Card
             Card(
@@ -292,6 +410,7 @@ fun AddEditTransactionSheet(
                                     amountText = input
                                 }
                             },
+                            readOnly = isLockedSettled,
                             placeholder = { Text("0", fontSize = 28.sp, fontWeight = FontWeight.Bold, color = typeColor.copy(alpha = 0.3f)) },
                             textStyle = MaterialTheme.typography.headlineMedium.copy(
                                 fontWeight = FontWeight.Bold,
@@ -320,6 +439,7 @@ fun AddEditTransactionSheet(
             OutlinedTextField(
                 value = titleText,
                 onValueChange = { titleText = it },
+                readOnly = isLockedSettled,
                 label = { Text("Title / Purpose (e.g. Groceries, Freelance)") },
                 singleLine = true,
                 modifier = Modifier.fillMaxWidth(),
@@ -332,6 +452,7 @@ fun AddEditTransactionSheet(
                 OutlinedTextField(
                     value = personNameText,
                     onValueChange = { personNameText = it },
+                    readOnly = isLockedSettled,
                     label = { Text(if (selectedType == TransactionType.LOAN_GIVEN) "Lent to (Person / Party Name) *" else "Borrowed from (Person / Party Name) *") },
                     leadingIcon = {
                         Icon(Icons.Default.Person, contentDescription = null, tint = typeColor)
@@ -483,7 +604,7 @@ fun AddEditTransactionSheet(
                                         .size(48.dp)
                                         .clip(RoundedCornerShape(8.dp))
                                         .background(Color.Black.copy(alpha = 0.05f))
-                                ) {
+                                 ) {
                                     AsyncImage(
                                         model = ImageRequest.Builder(context)
                                             .data(Uri.parse(receiptImageUri))
@@ -590,59 +711,89 @@ fun AddEditTransactionSheet(
 
             Spacer(modifier = Modifier.height(20.dp))
 
-            // Save Button
-            Button(
-                onClick = {
-                    val amount = amountText.toDoubleOrNull()
-                    if (amount == null || amount <= 0) {
-                        Toast.makeText(context, "Please enter a valid amount", Toast.LENGTH_SHORT).show()
-                        return@Button
-                    }
-
-                    val title = if (titleText.isNotBlank()) titleText.trim() else {
-                        if (selectedType == TransactionType.LOAN_GIVEN) "To ${personNameText.trim().ifEmpty { "someone" }}"
-                        else if (selectedType == TransactionType.LOAN_TAKEN) "From ${personNameText.trim().ifEmpty { "someone" }}"
-                        else selectedCategory ?: selectedType.name
-                    }
-
-                    if ((selectedType == TransactionType.LOAN_GIVEN || selectedType == TransactionType.LOAN_TAKEN) && personNameText.isBlank()) {
-                        Toast.makeText(context, "Please enter the person or entity name", Toast.LENGTH_SHORT).show()
-                        return@Button
-                    }
-
-                    haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
-                    onSaveTransaction(
-                        selectedType,
-                        amount,
-                        title,
-                        personNameText.trim().ifEmpty { null },
-                        selectedCategory,
-                        noteText.trim().ifEmpty { null },
-                        selectedDateMillis,
-                        makeRecurring,
-                        recurringFrequency,
-                        receiptImageUri
+            // Action / Save Button
+            if (isLockedSettled && initialTransaction != null) {
+                Button(
+                    onClick = {
+                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                        onUnsettleTransaction?.invoke(initialTransaction)
+                        isLockedSettled = false
+                        Toast.makeText(context, "Loan reopened for editing", Toast.LENGTH_SHORT).show()
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp)
+                        .bounceClick(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.LockOpen,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
                     )
-                    onDismiss()
-                },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(52.dp)
-                    .bounceClick(),
-                shape = RoundedCornerShape(16.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = typeColor)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Check,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp)
-                )
-                Spacer(modifier = Modifier.width(8.dp))
-                Text(
-                    text = if (initialTransaction == null) "Save ${CategoryIconHelper.getTypeLabel(selectedType)}" else "Update Entry",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp
-                )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Reopen / Unsettle Loan to Edit",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 15.sp
+                    )
+                }
+            } else {
+                Button(
+                    onClick = {
+                        val amount = amountText.toDoubleOrNull()
+                        if (amount == null || amount <= 0) {
+                            Toast.makeText(context, "Please enter a valid amount", Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
+
+                        val title = if (titleText.isNotBlank()) titleText.trim() else {
+                            if (selectedType == TransactionType.LOAN_GIVEN) "To ${personNameText.trim().ifEmpty { "someone" }}"
+                            else if (selectedType == TransactionType.LOAN_TAKEN) "From ${personNameText.trim().ifEmpty { "someone" }}"
+                            else selectedCategory ?: selectedType.name
+                        }
+
+                        if ((selectedType == TransactionType.LOAN_GIVEN || selectedType == TransactionType.LOAN_TAKEN) && personNameText.isBlank()) {
+                            Toast.makeText(context, "Please enter the person or entity name", Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
+
+                        haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
+                        onSaveTransaction(
+                            selectedType,
+                            amount,
+                            title,
+                            personNameText.trim().ifEmpty { null },
+                            selectedCategory,
+                            noteText.trim().ifEmpty { null },
+                            selectedDateMillis,
+                            selectedPaymentMode,
+                            makeRecurring,
+                            recurringFrequency,
+                            receiptImageUri
+                        )
+                        onDismiss()
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp)
+                        .bounceClick(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = typeColor)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (initialTransaction == null) "Save ${CategoryIconHelper.getTypeLabel(selectedType)}" else "Update Entry",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp
+                    )
+                }
             }
         }
     }

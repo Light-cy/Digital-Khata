@@ -16,11 +16,16 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountBalance
+import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.HelpOutline
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.Payments
 import androidx.compose.material.icons.filled.Savings
+import androidx.compose.material.icons.filled.TrendingDown
+import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -44,44 +49,44 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.theme.EarningGreen
-import com.example.ui.theme.EarningGreenLight
 import com.example.ui.theme.ExpenseRed
-import com.example.ui.theme.ExpenseRedLight
 import com.example.ui.theme.LoanGivenAmber
 import com.example.ui.theme.LoanTakenBlue
 import com.example.util.CurrencyUtils
 
 @Composable
 fun DailySummaryCard(
+    openingBalance: Double,
     totalEarning: Double,
     totalExpense: Double,
-    totalLoanGiven: Double,
-    totalLoanTaken: Double,
+    dailyNetSavings: Double,
+    runningBalance: Double,
+    cashRunning: Double = 0.0,
+    accountRunning: Double = 0.0,
+    unsettledLoanGiven: Double = 0.0,
+    unsettledLoanTaken: Double = 0.0,
     modifier: Modifier = Modifier
 ) {
     var showFormulaDialog by remember { mutableStateOf(false) }
 
-    // Net Savings formula: Earning - Expense - Loan Given + Loan Taken
-    val netSavings = totalEarning - totalExpense - totalLoanGiven + totalLoanTaken
-    val netLoanImpact = totalLoanTaken - totalLoanGiven
-
-    val isPositiveSavings = netSavings >= 0
+    val isPositiveRunning = runningBalance >= 0
+    val isPositiveTodayNet = dailyNetSavings >= 0
 
     val isDark = MaterialTheme.colorScheme.background.red < 0.5f
     val gradientColors = if (isDark) {
-        if (isPositiveSavings) {
+        if (isPositiveRunning) {
             listOf(
-                Color(0xFF1E2824), // Subtle dark green tint on top
-                Color(0xFF1A1D23)  // Refined card surface base
+                Color(0xFF1B2B22),
+                Color(0xFF161A1D)
             )
         } else {
             listOf(
-                Color(0xFF281E22), // Subtle dark red tint on top
-                Color(0xFF1A1D23)  // Refined card surface base
+                Color(0xFF2E1A1E),
+                Color(0xFF161A1D)
             )
         }
     } else {
-        if (isPositiveSavings) {
+        if (isPositiveRunning) {
             listOf(
                 Color(0xFFF0FDF4),
                 Color(0xFFFFFFFF)
@@ -98,7 +103,7 @@ fun DailySummaryCard(
         modifier = modifier
             .fillMaxWidth()
             .bounceClick(scaleDown = 0.99f),
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(
             containerColor = Color.Transparent
         ),
@@ -110,12 +115,12 @@ fun DailySummaryCard(
                 .background(
                     Brush.verticalGradient(gradientColors)
                 )
-                .padding(20.dp)
+                .padding(18.dp)
         ) {
             Column(
                 modifier = Modifier.fillMaxWidth()
             ) {
-                // Header Row: Net Savings Title & Info button
+                // Header: Main Prominent Running Balance
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -124,33 +129,33 @@ fun DailySummaryCard(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Box(
                             modifier = Modifier
-                                .size(40.dp)
+                                .size(42.dp)
                                 .background(
-                                    if (isPositiveSavings) EarningGreen.copy(alpha = 0.15f) else ExpenseRed.copy(alpha = 0.15f),
+                                    if (isPositiveRunning) EarningGreen.copy(alpha = 0.15f) else ExpenseRed.copy(alpha = 0.15f),
                                     CircleShape
                                 ),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Savings,
-                                contentDescription = "Savings",
-                                tint = if (isPositiveSavings) EarningGreen else ExpenseRed,
+                                imageVector = Icons.Default.AccountBalanceWallet,
+                                contentDescription = "Daily Running Balance",
+                                tint = if (isPositiveRunning) EarningGreen else ExpenseRed,
                                 modifier = Modifier.size(22.dp)
                             )
                         }
                         Spacer(modifier = Modifier.width(12.dp))
                         Column {
                             Text(
-                                text = "Daily Net Savings",
+                                text = "Day Running Balance (Carried + Today)",
                                 style = MaterialTheme.typography.labelMedium,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontWeight = FontWeight.Medium
+                                fontWeight = FontWeight.SemiBold
                             )
                             AnimatedCurrencyText(
-                                amount = netSavings,
+                                amount = runningBalance,
                                 style = MaterialTheme.typography.headlineMedium,
                                 fontWeight = FontWeight.ExtraBold,
-                                color = if (isPositiveSavings) EarningGreen else ExpenseRed,
+                                color = if (isPositiveRunning) EarningGreen else ExpenseRed,
                                 isSigned = false
                             )
                         }
@@ -171,37 +176,111 @@ fun DailySummaryCard(
                     }
                 }
 
-                Spacer(modifier = Modifier.height(18.dp))
+                Spacer(modifier = Modifier.height(12.dp))
 
-                // Sub-metrics Row
+                // Opening Balance & Today's Net Indicator Strip
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surface.copy(alpha = 0.75f)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "Opening: ",
+                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = CurrencyUtils.format(openingBalance),
+                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = "Today's Net: ",
+                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Text(
+                                text = (if (dailyNetSavings > 0) "+ " else if (dailyNetSavings < 0) "- " else "") + CurrencyUtils.format(dailyNetSavings),
+                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 12.sp),
+                                fontWeight = FontWeight.Bold,
+                                color = if (isPositiveTodayNet) EarningGreen else ExpenseRed
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Sub-metrics Row (Today's Earnings, Expenses, Net Activity)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // Earning Pill
+                    // Today's Earning Pill
                     SummaryPill(
-                        label = "Earnings",
+                        label = "Today's In",
                         amount = totalEarning,
                         color = EarningGreen,
+                        icon = Icons.Default.TrendingUp,
                         modifier = Modifier.weight(1f)
                     )
 
-                    // Expense Pill
+                    // Today's Expense Pill
                     SummaryPill(
-                        label = "Expenses",
+                        label = "Today's Out",
                         amount = totalExpense,
                         color = ExpenseRed,
+                        icon = Icons.Default.TrendingDown,
                         modifier = Modifier.weight(1f)
                     )
 
-                    // Loan Impact Pill
+                    // Today's Net Savings Pill
                     SummaryPill(
-                        label = "Net Loans",
-                        amount = netLoanImpact,
-                        color = if (netLoanImpact >= 0) LoanTakenBlue else LoanGivenAmber,
+                        label = "Daily Net",
+                        amount = dailyNetSavings,
+                        color = if (isPositiveTodayNet) EarningGreen else ExpenseRed,
+                        icon = Icons.Default.Savings,
                         isSigned = true,
-                        modifier = Modifier.weight(1.1f)
+                        modifier = Modifier.weight(1f)
                     )
+                }
+
+                // Optional: Unsettled Loans pending overview if active
+                if (unsettledLoanGiven > 0 || unsettledLoanTaken > 0) {
+                    Spacer(modifier = Modifier.height(10.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        if (unsettledLoanGiven > 0) {
+                            LoanBadge(
+                                label = "Lent (Pending)",
+                                amount = unsettledLoanGiven,
+                                color = LoanGivenAmber,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                        if (unsettledLoanTaken > 0) {
+                            LoanBadge(
+                                label = "Borrowed (Pending)",
+                                amount = unsettledLoanTaken,
+                                color = LoanTakenBlue,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -218,22 +297,46 @@ fun DailySummaryCard(
                         tint = MaterialTheme.colorScheme.primary
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Daily Savings Formula")
+                    Text("Daily Balance Breakdown")
                 }
             },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text(
-                        text = "Net Savings = (Earnings − Expenses) − Receivables + Payables",
-                        style = MaterialTheme.typography.bodyMedium,
-                        fontWeight = FontWeight.SemiBold
+                        text = "1. Running Total Balance",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
                     )
                     Text(
-                        text = "• Receivables reduce cash-in-hand today (money lent out).\n" +
-                                "• Payables increase cash-in-hand today (money borrowed).\n" +
-                                "• Both are tracked separately from ordinary expenses so you can accurately balance your daily wallet.",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        text = "= Opening Balance (Carried from yesterday) + Today's Earnings − Today's Expenses.\n" +
+                                "Split into Cash in Hand & Bank / Account in the Balance Overview card above.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+
+                    Text(
+                        text = "2. Daily Net Savings (Today Only)",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "= Today's Earnings − Today's Expenses.\n" +
+                                "Shows the net profit or cash flow generated on this date.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+
+                    Text(
+                        text = "3. Payment Modes (Cash vs Bank)",
+                        style = MaterialTheme.typography.titleSmall,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "• Cash entries update your Cash balance.\n" +
+                                "• Account / Bank entries update your Bank balance.\n" +
+                                "• You can adjust initial base amounts in Settings anytime.",
+                        style = MaterialTheme.typography.bodySmall
                     )
                 }
             },
@@ -254,6 +357,7 @@ private fun SummaryPill(
     label: String,
     amount: Double,
     color: Color,
+    icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
     isSigned: Boolean = false,
     modifier: Modifier = Modifier
 ) {
@@ -263,19 +367,33 @@ private fun SummaryPill(
         color = color.copy(alpha = 0.08f)
     ) {
         Column(
-            modifier = Modifier.padding(vertical = 10.dp, horizontal = 8.dp),
+            modifier = Modifier.padding(vertical = 8.dp, horizontal = 6.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.Center
+            ) {
+                if (icon != null) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = color,
+                        modifier = Modifier.size(12.dp)
+                    )
+                    Spacer(modifier = Modifier.width(3.dp))
+                }
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1
+                )
+            }
             Spacer(modifier = Modifier.height(3.dp))
             AnimatedCurrencyText(
                 amount = amount,
-                style = MaterialTheme.typography.bodyMedium.copy(fontSize = 12.5.sp),
+                style = MaterialTheme.typography.bodyMedium.copy(fontSize = 12.sp),
                 fontWeight = FontWeight.Bold,
                 color = color,
                 isSigned = isSigned
@@ -284,3 +402,35 @@ private fun SummaryPill(
     }
 }
 
+@Composable
+private fun LoanBadge(
+    label: String,
+    amount: Double,
+    color: Color,
+    modifier: Modifier = Modifier
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(10.dp),
+        color = color.copy(alpha = 0.09f)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                color = color,
+                fontWeight = FontWeight.SemiBold
+            )
+            Text(
+                text = CurrencyUtils.format(amount),
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                fontWeight = FontWeight.Bold,
+                color = color
+            )
+        }
+    }
+}

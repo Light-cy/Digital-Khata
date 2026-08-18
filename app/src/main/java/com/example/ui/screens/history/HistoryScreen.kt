@@ -47,17 +47,20 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.data.model.PaymentMode
 import com.example.data.model.Transaction
 import com.example.data.model.TransactionType
+import com.example.data.model.isSettlementEntry
 import com.example.ui.components.AddEditTransactionSheet
 import com.example.ui.components.AppTopHeader
 import com.example.ui.components.CategoryIconHelper
+import com.example.ui.components.ReceiptViewerDialog
+import com.example.ui.components.SystemSettlementDetailDialog
 import com.example.ui.screens.home.TransactionItemRow
 import com.example.ui.theme.EarningGreen
 import com.example.ui.theme.ExpenseRed
 import com.example.ui.theme.LoanGivenAmber
 import com.example.ui.theme.LoanTakenBlue
-import com.example.ui.components.ReceiptViewerDialog
 import com.example.util.CurrencyUtils
 import com.example.util.NotificationHelper
 
@@ -69,15 +72,18 @@ fun HistoryScreen(
     notificationHelper: NotificationHelper? = null,
     unreadNotificationsCount: Int = 0,
     onNavigateToSettings: (() -> Unit)? = null,
+    onNavigateToLoans: (() -> Unit)? = null,
     onNotificationClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier
 ) {
     val searchQuery by viewModel.searchQuery.collectAsStateWithLifecycle()
     val selectedTypeFilter by viewModel.selectedTypeFilter.collectAsStateWithLifecycle()
+    val selectedPaymentModeFilter by viewModel.selectedPaymentModeFilter.collectAsStateWithLifecycle()
     val transactions by viewModel.filteredTransactions.collectAsStateWithLifecycle()
     val isReminderActive = notificationHelper?.isDailyReminderEnabled() ?: false
 
     var editingTransaction by remember { mutableStateOf<Transaction?>(null) }
+    var viewingSettlementTransaction by remember { mutableStateOf<Transaction?>(null) }
     var showEditSheet by remember { mutableStateOf(false) }
     var viewingReceiptTransaction by remember { mutableStateOf<Transaction?>(null) }
 
@@ -182,6 +188,41 @@ fun HistoryScreen(
                 )
             }
 
+            // Payment Mode Filter Chips Row
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = 16.dp, vertical = 2.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilterChip(
+                    selected = selectedPaymentModeFilter == null,
+                    onClick = { viewModel.setPaymentModeFilter(null) },
+                    label = { Text("All Accounts") }
+                )
+
+                FilterChip(
+                    selected = selectedPaymentModeFilter == PaymentMode.CASH,
+                    onClick = { viewModel.setPaymentModeFilter(if (selectedPaymentModeFilter == PaymentMode.CASH) null else PaymentMode.CASH) },
+                    label = { Text("💵 Cash Only") },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = EarningGreen.copy(alpha = 0.15f),
+                        selectedLabelColor = EarningGreen
+                    )
+                )
+
+                FilterChip(
+                    selected = selectedPaymentModeFilter == PaymentMode.ACCOUNT,
+                    onClick = { viewModel.setPaymentModeFilter(if (selectedPaymentModeFilter == PaymentMode.ACCOUNT) null else PaymentMode.ACCOUNT) },
+                    label = { Text("🏦 Bank Only") },
+                    colors = FilterChipDefaults.filterChipColors(
+                        selectedContainerColor = LoanTakenBlue.copy(alpha = 0.15f),
+                        selectedLabelColor = LoanTakenBlue
+                    )
+                )
+            }
+
             Spacer(modifier = Modifier.height(6.dp))
 
             // Transactions List
@@ -215,13 +256,22 @@ fun HistoryScreen(
                     verticalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     items(transactions, key = { it.id }) { transaction ->
+                        val isSettlement = transaction.isSettlementEntry
                         TransactionItemRow(
                             transaction = transaction,
                             onClick = {
-                                editingTransaction = transaction
-                                showEditSheet = true
+                                if (isSettlement) {
+                                    viewingSettlementTransaction = transaction
+                                } else {
+                                    editingTransaction = transaction
+                                    showEditSheet = true
+                                }
                             },
-                            onDelete = { viewModel.deleteTransaction(transaction) },
+                            onDelete = {
+                                if (!isSettlement) {
+                                    viewModel.deleteTransaction(transaction)
+                                }
+                            },
                             onViewReceipt = { viewingReceiptTransaction = transaction }
                         )
                     }
@@ -238,7 +288,7 @@ fun HistoryScreen(
                 showEditSheet = false
                 editingTransaction = null
             },
-            onSaveTransaction = { type, amount, title, personName, category, note, dateMillis, _, _, receiptUri ->
+            onSaveTransaction = { type, amount, title, personName, category, note, dateMillis, paymentMode, _, _, receiptUri ->
                 viewModel.updateTransaction(
                     editingTransaction!!.copy(
                         type = type,
@@ -246,6 +296,7 @@ fun HistoryScreen(
                         title = title,
                         personName = personName,
                         category = category,
+                        paymentMode = paymentMode,
                         note = note,
                         date = dateMillis,
                         receiptImageUri = receiptUri
@@ -263,6 +314,14 @@ fun HistoryScreen(
             imageUri = viewingReceiptTransaction!!.receiptImageUri!!,
             title = viewingReceiptTransaction!!.title,
             onDismiss = { viewingReceiptTransaction = null }
+        )
+    }
+
+    if (viewingSettlementTransaction != null) {
+        SystemSettlementDetailDialog(
+            transaction = viewingSettlementTransaction!!,
+            onDismiss = { viewingSettlementTransaction = null },
+            onNavigateToLoans = onNavigateToLoans
         )
     }
 }

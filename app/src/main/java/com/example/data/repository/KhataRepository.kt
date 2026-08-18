@@ -5,6 +5,7 @@ import com.example.data.local.BudgetDao
 import com.example.data.local.RecurringTemplateDao
 import com.example.data.local.TransactionDao
 import com.example.data.model.Budget
+import com.example.data.model.PaymentMode
 import com.example.data.model.RecurringTemplate
 import com.example.data.model.Transaction
 import com.example.data.model.TransactionType
@@ -59,13 +60,26 @@ class KhataRepository(
     }
 
     suspend fun deleteTransaction(transaction: Transaction) {
+        // Delete linked settlement transaction if present
+        transaction.linkedTransactionId?.let { linkedId ->
+            transactionDao.deleteById(linkedId)
+        }
+        // If this transaction is a settlement transaction, reopen the parent loan
+        transactionDao.findLoanByLinkedTransactionId(transaction.id)?.let { parentLoan ->
+            transactionDao.update(parentLoan.copy(isSettled = false, linkedTransactionId = null))
+        }
         transactionDao.delete(transaction)
         notifyWidgetUpdate()
     }
 
     suspend fun deleteTransactionById(id: Long) {
-        transactionDao.deleteById(id)
-        notifyWidgetUpdate()
+        val tx = transactionDao.getTransactionById(id)
+        if (tx != null) {
+            deleteTransaction(tx)
+        } else {
+            transactionDao.deleteById(id)
+            notifyWidgetUpdate()
+        }
     }
 
     private fun notifyWidgetUpdate() {
@@ -78,8 +92,72 @@ class KhataRepository(
         }
     }
 
+    suspend fun settleLoan(
+        loan: Transaction,
+        settlementDateMillis: Long = System.currentTimeMillis(),
+        settlementPaymentMode: PaymentMode = loan.paymentMode
+    ): Long {
+        if (loan.isSettled && loan.linkedTransactionId != null) {
+            return loan.linkedTransactionId
+        }
+
+        val isLoanGiven = loan.type == TransactionType.LOAN_GIVEN
+        val person = loan.personName?.takeIf { it.isNotBlank() } ?: loan.title
+        val settlementTitle = if (isLoanGiven) "Loan Recovered — $person" else "Loan Repaid — $person"
+        val settlementType = if (isLoanGiven) TransactionType.EARNING else TransactionType.EXPENSE
+        val settlementCategory = if (isLoanGiven) "Loan Recovery" else "Loan Repayment"
+
+        val settlementTx = Transaction(
+            date = settlementDateMillis,
+            type = settlementType,
+            amount = loan.amount,
+            title = settlementTitle,
+            personName = loan.personName,
+            category = settlementCategory,
+            paymentMode = settlementPaymentMode,
+            isSystemGenerated = true,
+            linkedTransactionId = loan.id,
+            note = "Settlement for loan: ${loan.title}",
+            createdAt = System.currentTimeMillis()
+        )
+        val settlementId = transactionDao.insert(settlementTx)
+        val updatedLoan = loan.copy(isSettled = true, linkedTransactionId = settlementId)
+        transactionDao.update(updatedLoan)
+        notifyWidgetUpdate()
+        return settlementId
+    }
+
+    suspend fun unsettleLoan(loan: Transaction) {
+        if (!loan.isSettled) return
+        loan.linkedTransactionId?.let { linkedId ->
+            transactionDao.deleteById(linkedId)
+        }
+        val updatedLoan = loan.copy(isSettled = false, linkedTransactionId = null)
+        transactionDao.update(updatedLoan)
+        notifyWidgetUpdate()
+    }
+
+    suspend fun toggleLoanSettled(
+        loan: Transaction,
+        settlementDateMillis: Long = System.currentTimeMillis(),
+        settlementPaymentMode: PaymentMode = loan.paymentMode
+    ): Boolean {
+        return if (loan.isSettled) {
+            unsettleLoan(loan)
+            false
+        } else {
+            settleLoan(loan, settlementDateMillis, settlementPaymentMode)
+            true
+        }
+    }
+
     suspend fun setLoanSettled(id: Long, isSettled: Boolean) {
-        transactionDao.updateSettledStatus(id, isSettled)
+        val loan = transactionDao.getTransactionById(id) ?: return
+        if (isSettled && !loan.isSettled) {
+            settleLoan(loan)
+        } else if (!isSettled && loan.isSettled) {
+            unsettleLoan(loan)
+        }
     }
 
     suspend fun getAllTransactionsSnapshot(): List<Transaction> {
