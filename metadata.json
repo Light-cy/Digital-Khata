@@ -1,0 +1,6 @@
+{
+  "name": "Digital Khata",
+  "description": "Personal daily finance and loan tracker with offline Room database, weekly/monthly analytics, budgets, and CSV/Excel backup.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
